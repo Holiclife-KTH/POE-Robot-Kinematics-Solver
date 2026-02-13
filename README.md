@@ -65,13 +65,7 @@ else:
 
 ---
 
-### 2. Theory Section (이론 설명)
 
-이 부분은 수식(`$$`)이 포함되어 있어 GitHub에서 렌더링될 때 깔끔하게 보입니다.
-
-
-
-```markdown
 ## 📐 Theory: Product of Exponentials (POE)
 
 This library implements the **Product of Exponentials (POE)** formula, which is a modern approach to robot kinematics widely used in research and advanced control.
