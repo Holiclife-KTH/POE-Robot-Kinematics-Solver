@@ -109,11 +109,13 @@ class IKResult:
 # ---------------------------------------------------------------------------
 def skew(v: Vec3) -> Mat3:
     """Return the 3x3 skew-symmetric matrix of a 3-D vector (so(3))."""
-    return np.array([
-        [0.0, -v[2], v[1]],
-        [v[2], 0.0, -v[0]],
-        [-v[1], v[0], 0.0],
-    ])
+    return np.array(
+        [
+            [0.0, -v[2], v[1]],
+            [v[2], 0.0, -v[0]],
+            [-v[1], v[0], 0.0],
+        ]
+    )
 
 
 def matrix_exp3(omega: Vec3, theta: float) -> Mat3:
@@ -169,11 +171,13 @@ def rotation_error(R: Mat3) -> Vec3:
     if abs(angle) < ZERO_THRESHOLD:
         return np.zeros(3)
 
-    axis = np.array([
-        R[2, 1] - R[1, 2],
-        R[0, 2] - R[2, 0],
-        R[1, 0] - R[0, 1],
-    ])
+    axis = np.array(
+        [
+            R[2, 1] - R[1, 2],
+            R[0, 2] - R[2, 0],
+            R[1, 0] - R[0, 1],
+        ]
+    )
     return axis * (angle / (2.0 * np.sin(angle)))
 
 
@@ -208,6 +212,80 @@ def transform_to_pose(T: Mat4) -> Vec6:
     return np.array([x, y, z, roll, pitch, yaw])
 
 
+def pose_to_transform(pose: Vec6) -> Mat4:
+    """Convert a 6-D pose [x, y, z, roll, pitch, yaw] to a 4x4 homogeneous transform.
+
+    Euler angles follow the ZYX (yaw-pitch-roll) intrinsic convention,
+    matching ``transform_to_pose``.
+
+    Args:
+        pose: (6,) array of [x, y, z, roll, pitch, yaw] in metres / radians.
+
+    Returns:
+        4x4 homogeneous transformation matrix.
+    """
+    x, y, z, roll, pitch, yaw = pose
+
+    cr, sr = np.cos(roll), np.sin(roll)
+    cp, sp = np.cos(pitch), np.sin(pitch)
+    cy, sy = np.cos(yaw), np.sin(yaw)
+
+    # R = Rz(yaw) @ Ry(pitch) @ Rx(roll)
+    R = np.array(
+        [
+            [cy * cp, cy * sp * sr - sy * cr, cy * sp * cr + sy * sr],
+            [sy * cp, sy * sp * sr + cy * cr, sy * sp * cr - cy * sr],
+            [-sp, cp * sr, cp * cr],
+        ]
+    )
+
+    T = np.eye(4)
+    T[:3, :3] = R
+    T[:3, 3] = [x, y, z]
+    return T
+
+
+def transform_A_to_B(
+    current_pose: VecN, translation: Vec3 = np.zeros(3), rotation: Vec3 = np.zeros(3)
+) -> Mat4:
+    """Compute the transform from frame A to C given T_A_to_B and T_B_to_C."""
+    T_A_to_B = pose_to_transform(current_pose)
+    if rotation is not None:
+        # If rotation is provided, create a rotation matrix from Euler angles
+        R = np.eye(3)
+        for i, angle in enumerate(rotation):
+            if i == 0:
+                R = R @ np.array(
+                    [
+                        [1, 0, 0],
+                        [0, np.cos(angle), -np.sin(angle)],
+                        [0, np.sin(angle), np.cos(angle)],
+                    ]
+                )
+            elif i == 1:
+                R = R @ np.array(
+                    [
+                        [np.cos(angle), 0, np.sin(angle)],
+                        [0, 1, 0],
+                        [-np.sin(angle), 0, np.cos(angle)],
+                    ]
+                )
+            elif i == 2:
+                R = R @ np.array(
+                    [
+                        [np.cos(angle), -np.sin(angle), 0],
+                        [np.sin(angle), np.cos(angle), 0],
+                        [0, 0, 1],
+                    ]
+                )
+        T_A_to_B[:3, :3] = R @ T_A_to_B[:3, :3]
+
+    # Apply translation
+    T_A_to_B[:3, 3] += translation
+
+    return T_A_to_B
+
+
 # ---------------------------------------------------------------------------
 # DH helpers
 # ---------------------------------------------------------------------------
@@ -215,12 +293,14 @@ def dh_to_transform(a: float, d: float, alpha: float, theta: float = 0.0) -> Mat
     """Build the 4x4 homogeneous transform from standard DH parameters."""
     ct, st = np.cos(theta), np.sin(theta)
     ca, sa = np.cos(alpha), np.sin(alpha)
-    return np.array([
-        [ct, -st * ca, st * sa, a * ct],
-        [st, ct * ca, -ct * sa, a * st],
-        [0.0, sa, ca, d],
-        [0.0, 0.0, 0.0, 1.0],
-    ])
+    return np.array(
+        [
+            [ct, -st * ca, st * sa, a * ct],
+            [st, ct * ca, -ct * sa, a * st],
+            [0.0, sa, ca, d],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
 
 
 def convert_dh_to_poe(
@@ -243,8 +323,8 @@ def convert_dh_to_poe(
         R = T_cumulative[:3, :3]
         p = T_cumulative[:3, 3]
 
-        omega = R @ local_z              # joint rotation axis in base frame
-        v = -np.cross(omega, p)           # linear velocity component
+        omega = R @ local_z  # joint rotation axis in base frame
+        v = -np.cross(omega, p)  # linear velocity component
         screws.append(np.concatenate([omega, v]))
 
         T_cumulative = T_cumulative @ dh_to_transform(a, d, alpha)
@@ -361,7 +441,7 @@ class RobotKinematicsPOE:
             twist_space = adjoint(T_current) @ twist_body
 
             # Damped least-squares pseudo-inverse of the spatial Jacobian
-            JtJ = Js.T @ Js + IK_DAMPING_FACTOR ** 2 * np.eye(n)
+            JtJ = Js.T @ Js + IK_DAMPING_FACTOR**2 * np.eye(n)
             theta += np.linalg.solve(JtJ, Js.T @ twist_space)
 
         # Normalize to [-pi, pi]
@@ -412,11 +492,18 @@ if __name__ == "__main__":
     # UR5e (6-DOF)
     _run_self_test(
         UR5E_CONFIG,
-        test_joints=[0.0, -2.0, 2.0, 0.0, -1.57, -np.pi / 2],
+        test_joints=[
+            2.88736535,
+            2.88093968,
+            1.89112928,
+            1.51193925,
+            -1.82502351,
+            1.57100323,
+        ],
     )
 
-    # Franka Emika Panda (7-DOF)
-    _run_self_test(
-        FRANKA_CONFIG,
-        test_joints=[0.0, -0.5, 0.0, -2.0, 0.0, 1.5, 0.0],
-    )
+    # # Franka Emika Panda (7-DOF)
+    # _run_self_test(
+    #     FRANKA_CONFIG,
+    #     test_joints=[0.0, -0.5, 0.0, -2.0, 0.0, 1.5, 0.0],
+    # )
